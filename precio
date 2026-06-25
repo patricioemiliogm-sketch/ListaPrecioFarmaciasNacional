@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lista de Precios - Farmacia</title>
+    
+    <!-- Tailwind CSS para el diseño -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- SheetJS para leer el archivo Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- FontAwesome para los íconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0ea5e9', // Un azul médico/fresco
+                        secondary: '#38bdf8'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Estilos personalizados para la barra de desplazamiento de la tabla */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0ea5e9;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans text-slate-800">
+
+    <!-- Encabezado Principal -->
+    <header class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-3 text-primary">
+                    <i class="fa-solid fa-notes-medical text-3xl"></i>
+                    <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Lista de Precios <span class="text-primary">Farmacia</span></h1>
+                </div>
+                
+                <!-- Buscador -->
+                <div class="w-full md:w-1/2 relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+                    </div>
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        class="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl leading-5 bg-slate-50 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-primary focus:border-primary transition duration-150 ease-in-out sm:text-sm shadow-sm" 
+                        placeholder="Buscar medicamento, componente, laboratorio..."
+                        disabled
+                    >
+                    <button id="clearSearch" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 hidden">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Estado de Carga -->
+        <div id="loadingState" class="flex flex-col items-center justify-center py-20">
+            <div class="loader mb-4"></div>
+            <p class="text-lg font-medium text-slate-600">Descargando y procesando catálogo de precios...</p>
+            <p class="text-sm text-slate-400 mt-2">Esto tomará solo unos segundos</p>
+        </div>
+
+        <!-- Estado de Error -->
+        <div id="errorState" class="hidden flex-col items-center justify-center py-20 text-center">
+            <i class="fa-solid fa-triangle-exclamation text-5xl text-red-400 mb-4"></i>
+            <h2 class="text-xl font-bold text-slate-800 mb-2">Hubo un problema al cargar los datos</h2>
+            <p id="errorMessage" class="text-slate-600">No se pudo acceder al archivo Excel en GitHub.</p>
+            <button onclick="fetchExcelData()" class="mt-6 px-4 py-2 bg-primary text-white rounded-lg shadow hover:bg-secondary transition">
+                <i class="fa-solid fa-rotate-right mr-2"></i>Reintentar
+            </button>
+        </div>
+
+        <!-- Contenedor de la Tabla -->
+        <div id="tableWrapper" class="hidden bg-white shadow-xl rounded-2xl overflow-hidden border border-slate-200">
+            <!-- Estadísticas rápidas -->
+            <div class="bg-slate-50 border-b border-slate-200 px-6 py-3 flex justify-between items-center">
+                <span class="text-sm font-medium text-slate-500">
+                    Mostrando <span id="resultCount" class="text-primary font-bold">0</span> medicamentos
+                </span>
+            </div>
+            
+            <div class="overflow-x-auto max-h-[70vh] relative">
+                <table class="min-w-full divide-y divide-slate-200">
+                    <thead class="bg-slate-100 sticky top-0 z-10 shadow-sm">
+                        <tr id="tableHeaders">
+                            <!-- Los encabezados se insertan aquí vía JS -->
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="bg-white divide-y divide-slate-100">
+                        <!-- Las filas se insertan aquí vía JS -->
+                    </tbody>
+                </table>
+                
+                <!-- Estado sin resultados -->
+                <div id="noResultsState" class="hidden py-16 text-center">
+                    <i class="fa-solid fa-capsules text-4xl text-slate-300 mb-3"></i>
+                    <p class="text-lg text-slate-500">No se encontraron medicamentos que coincidan con la búsqueda.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Variables globales
+        let allData = [];
+        let headers = [];
+
+        // La URL debe ser la versión "raw" del archivo para poder leerlo directamente
+        const GITHUB_RAW_URL = "https://raw.githubusercontent.com/Zorropaton/Listadeprecios/main/LISTA%20PRECIO%20ACTUALIZADA.xlsx";
+
+        // Elementos del DOM
+        const searchInput = document.getElementById('searchInput');
+        const clearSearchBtn = document.getElementById('clearSearch');
+        const loadingState = document.getElementById('loadingState');
+        const errorState = document.getElementById('errorState');
+        const errorMessage = document.getElementById('errorMessage');
+        const tableWrapper = document.getElementById('tableWrapper');
+        const tableHeaders = document.getElementById('tableHeaders');
+        const tableBody = document.getElementById('tableBody');
+        const resultCount = document.getElementById('resultCount');
+        const noResultsState = document.getElementById('noResultsState');
+
+        // Función para cargar y procesar el Excel
+        async function fetchExcelData() {
+            try {
+                // Mostrar carga, ocultar otros
+                loadingState.classList.remove('hidden');
+                errorState.classList.add('hidden');
+                tableWrapper.classList.add('hidden');
+                searchInput.disabled = true;
+
+                // Descargar el archivo como ArrayBuffer
+                const response = await fetch(GITHUB_RAW_URL);
+                if (!response.ok) throw new Error("Error en la respuesta del servidor (HTTP " + response.status + ")");
+                
+                const arrayBuffer = await response.arrayBuffer();
+
+                // Procesar con SheetJS
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                
+                // Obtener la primera hoja
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                
+                // Convertir a JSON
+                // raw: false asegura que los números formateados (ej. monedas) vengan como texto si es posible, 
+                // defval: "" asigna vacío a celdas nulas
+                const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                // Filtrar filas: excluir las que tengan un precio menor a 500
+                allData = rawData.filter(row => {
+                    // Buscar si alguna columna de precio tiene valor < 500
+                    for (const key in row) {
+                        if (key.toLowerCase().includes('precio')) {
+                            const valor = parseFloat(row[key]);
+                            // Si es un número válido y es menor a 500, descartamos el medicamento
+                            if (!isNaN(valor) && valor < 500) {
+                                return false; 
+                            }
+                        }
+                    }
+                    return true; // Mantener el medicamento si pasa la validación
+                });
+
+                if (allData.length > 0) {
+                    headers = Object.keys(allData[0]);
+                    renderHeaders();
+                    renderTable(allData);
+                    
+                    // Activar buscador
+                    searchInput.disabled = false;
+                    searchInput.focus();
+                } else {
+                    throw new Error("El archivo Excel parece estar vacío.");
+                }
+
+                // Ocultar carga, mostrar tabla
+                loadingState.classList.add('hidden');
+                tableWrapper.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Error cargando el Excel:", error);
+                loadingState.classList.add('hidden');
+                errorState.classList.remove('hidden');
+                errorMessage.textContent = error.message;
+            }
+        }
+
+        // Función para renderizar los encabezados de la tabla dinámicamente
+        function renderHeaders() {
+            tableHeaders.innerHTML = '';
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.scope = 'col';
+                th.className = 'px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap';
+                th.textContent = header;
+                tableHeaders.appendChild(th);
+            });
+        }
+
+        // Función para renderizar las filas de la tabla
+        function renderTable(dataToRender) {
+            tableBody.innerHTML = '';
+            resultCount.textContent = dataToRender.length;
+
+            if (dataToRender.length === 0) {
+                tableBody.parentElement.classList.add('hidden');
+                noResultsState.classList.remove('hidden');
+                return;
+            }
+
+            tableBody.parentElement.classList.remove('hidden');
+            noResultsState.classList.add('hidden');
+
+            // Optimización: Usar DocumentFragment para inserciones masivas en el DOM es más rápido
+            const fragment = document.createDocumentFragment();
+
+            dataToRender.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-blue-50/50 transition-colors duration-150 group';
+                
+                headers.forEach((header, index) => {
+                    const td = document.createElement('td');
+                    td.className = 'px-6 py-4 whitespace-nowrap text-sm text-slate-700';
+                    
+                    let cellValue = row[header];
+
+                    // Formatear la celda si el nombre de la columna parece ser un precio y es un número
+                    if (header.toLowerCase().includes('precio') && !isNaN(cellValue) && cellValue !== "") {
+                        cellValue = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(cellValue);
+                        // Destacar los precios
+                        td.className += ' font-semibold text-primary';
+                    }
+
+                    // Destacar la primera columna (usualmente el nombre)
+                    if (index === 0) {
+                        td.className += ' font-medium text-slate-900';
+                    }
+
+                    td.textContent = cellValue;
+                    tr.appendChild(td);
+                });
+                
+                fragment.appendChild(tr);
+            });
+
+            tableBody.appendChild(fragment);
+        }
+
+        // Lógica de búsqueda
+        searchInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            
+            // Mostrar u ocultar el botón de limpiar
+            if (searchTerm.length > 0) {
+                clearSearchBtn.classList.remove('hidden');
+            } else {
+                clearSearchBtn.classList.add('hidden');
+            }
+
+            // Filtrar datos
+            const filteredData = allData.filter(row => {
+                // Comprueba si algún valor de la fila incluye el término de búsqueda
+                return Object.values(row).some(val => 
+                    String(val).toLowerCase().includes(searchTerm)
+                );
+            });
+
+            renderTable(filteredData);
+        });
+
+        // Lógica para limpiar la búsqueda
+        clearSearchBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            clearSearchBtn.classList.add('hidden');
+            renderTable(allData);
+            searchInput.focus();
+        });
+
+        // Iniciar la descarga al cargar la página
+        window.addEventListener('DOMContentLoaded', fetchExcelData);
+
+    </script>
+</body>
+</html>
